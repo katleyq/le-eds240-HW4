@@ -1,0 +1,162 @@
+---
+title: "Homework Assignment #2: Part 2 - Exploratory Analysis"
+subtitle: "Part II"
+author: "Kat Le"
+date: 2024-02-03
+toc: true
+format: html
+editor_options: 
+  chunk_output_type: console
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+##
+library(tidyverse)
+library(here)
+library(janitor)
+library(tsibble)
+library(sf)
+
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                                import data                               ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+north_hem <- read_csv(here("data/N_seaice_extent_daily_v3.0.csv")) %>% 
+  clean_names() %>% 
+  mutate(hemisphere = "Northern Hemisphere")
+
+south_hem <-read_csv(here("data/S_seaice_extent_daily_v3.0.csv")) %>% 
+  clean_names() %>% 
+  mutate(hemisphere = "Southern Hemisphere")
+
+```
+
+### Data cleaning and wrangling
+
+```{r data-cleaning-and-wrangling}
+#| eval: true
+#| echo: true
+## Data cleaning & wrangling
+
+combined <- full_join(north_hem, south_hem)
+
+combined_clean <- combined %>% 
+  filter(year != "YYYY") %>%
+  filter(year != 2024) %>%
+  mutate(year = as.numeric(year),
+         month = as.numeric(month),
+         day = as.numeric(day),
+         extent = as.numeric(extent),
+         missing = as.numeric(extent)) %>% 
+  unite(date, c(year, month, day), sep = "-", remove = FALSE) %>% 
+  mutate(date = as.Date(date)) 
+
+avg_combined <- combined_clean %>% 
+  mutate(year_month = yearmonth(date)) %>% 
+  group_by(year, hemisphere) %>% 
+  summarize(mean_extent = mean(extent, na.rm=TRUE))
+
+
+combined_by_decade <- combined_clean %>%
+  group_by(year, hemisphere) %>% 
+  filter(year >= 1980 & year <= 2019) %>%
+  mutate(decade = case_when(
+    between(year, 1980, 1989) ~ "1980s",
+    between(year, 1990, 1999) ~ "1990s",
+    between(year, 2000, 2009) ~ "2000s",
+    between(year, 2010, 2019) ~ "2010s"
+  ))
+  
+
+```
+
+### Plot 1
+
+```{r}
+#| eval: true
+#| echo: true
+## Plot 1
+
+# Creating a line plot of annual sea ice extent and facet-wrapped by hemisphere.
+plot1 <- ggplot(avg_combined, aes(x = year, y = mean_extent, color = hemisphere)) +
+  geom_line() +
+  facet_wrap(~hemisphere) +
+  scale_fill_manual(values = c("red", "cyan4")) +
+  scale_color_manual(values = c("red", "cyan4")) +
+  theme_bw()
+plot1
+```
+
+### Plot 2
+
+```{r}
+#| eval: true
+#| echo: true
+## Plot 2
+
+# Creating a boxplot of sea ice extent by hemisphere and organized by decade.
+plot2 <- ggplot(combined_by_decade, aes(x = extent, y = decade, 
+                                        color = hemisphere)) +
+  geom_boxplot() +
+  facet_grid(row = vars(hemisphere)) +
+  scale_fill_manual(values = c("red", "cyan4")) +
+  scale_color_manual(values = c("red", "cyan4")) +
+  theme_bw()
+plot2
+```
+
+### Plot 3
+
+```{r}
+#| eval: true
+#| echo: true
+## Plot 2
+
+# Creating a ridgeplot of sea ice extent by hemisphere and organized by decade.
+plot3 <- ggplot(combined_by_decade, aes(x = extent, y = decade, 
+                                        color = hemisphere, fill = hemisphere)) +
+  ggridges::geom_density_ridges(alpha = 0.5) +
+  scale_fill_manual(values = c("red", "cyan4")) +
+  scale_color_manual(values = c("red", "cyan4")) +
+  theme_bw()
+plot3
+```
+
+### Polishing Plot 1
+
+```{r}
+#| eval: true
+#| echo: true
+## Plot 3
+
+# Creating polished line plot of annual sea ice extent by year. Facet-wrap to emphasize difference between north and southern hemisphere.
+plot1_mod <- ggplot(avg_combined, aes(x = year, y = mean_extent, color = hemisphere)) +
+  geom_line() +
+  facet_wrap(~hemisphere) +
+  theme_bw() +
+  labs(x = "Year",
+       y = bquote("Sea Ice Extent " ("millions of" ~ km^2))) +
+  scale_fill_manual(values = c("red", "cyan4")) +
+  scale_color_manual(values = c("red", "cyan4")) +
+  theme_bw() +
+  guides(color = FALSE)
+plot1_mod
+
+```
+
+### Reflection questions
+
+1.  What have you learned about your data? Have any potentially interesting patterns emerged? (5-8 sentences)
+
+ANSWER: When creating the line plot of annual sea ice extent, I learned that warming seems to be happening more rapidly in the northern hemisphere than it is in the southern hemisphere. I never thought of that before this assignment, but I researched this topic more and I learned that it is true [@carlson2012]. The northern hemisphere warms more rapidly because there is more land mass and less water to thermal regulate. In addition, the tilt of the earth causes weather patterns to bring warmer air to the northern hemisphere. I want to explore this trend further with land ice, and relate it to sea level rise. Then I decided to average by decades to separate out the long-term trend and visualize it using a boxplot. I saw the same trend in the decadal boxplots, where sea ice extend is decreasing over time. Finally, I made a ridgeplot to visualize density distribution and learned that there is a bimodal distribution of sea ice extent by decade. I looked into this and it could be due to El Nino and La Nino patterns [@wang2013].
+
+2.  In HW #1, you outlined some questions that you wanted to answer using these data. Have you made any strides towards answering those questions? If yes, how so? If no, what next steps do you need to take (e.g. I need to create X plot type, I still need to track down Y data, I need to restructure existing data so that you can visualize it in Z ways, etc.)? (8-12 sentences)
+
+ANSWER: I have made progress towards learning more about how sea ice is changing over time. I learned that the northern hemisphere is warming more rapidly than the southern hemisphere as mentioned above. This exploratory analysis opened up more questions for me. I am curious to look at land ice melting and visualize how that has changed over the same time period. I tried to find some data on this but the data I have is contained in shape files, which I'm working to analyze. I also want to look at sea level rise; I want to visualize the relationship between land & sea ice melting and sea level rise. I am still working on wrangling the sea level rise dataset because I'm looking to display a unit of volume instead of millimeters. Overall, I want to turn the units I have into units that the general audience would understand for better scientific communication.
+
+3.  What challenges do you foresee encountering with your data? These can be data wrangling and / or visualization challenges. (4-6 sentences)
+
+Answer: I think analyzing the land ice data will be challenging since it's stored in shapefiles, but it will be achievable. I will just need to find the area of the glacial polygons and convert that into volume. I also think I'm going to have trouble with analyzing sea level rise because I want to visualize it in terms of volume so I will need to do a literature review to convert units. I think that getting what I need to make the scientific visualizations will be easy, but creating a visualization for the general public will be challenging for me.
