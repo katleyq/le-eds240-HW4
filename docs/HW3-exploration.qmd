@@ -1,0 +1,363 @@
+---
+title: "HW3-exploration"
+author: "Kat le"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(janitor)
+library(sf)
+library(patchwork)
+library(calecopal)
+library(showtext)
+library(cowplot)
+library(tidycensus)
+
+options(scipen = 999)
+```
+
+```{r}
+data <- read_csv(here("data/natural-disasters.csv")) %>% 
+  clean_names()
+
+data_long <- data %>% 
+  pivot_longer(cols = -c("country_name", "year"),
+               names_to = "type",
+               values_to = "value")
+
+column_names <- data.frame(names(data))
+```
+
+```{r}
+countries <- st_read(here("data/World_Countries_Generalized/World_Countries_Generalized.shp"))
+
+drought <- data %>% 
+  filter(number_of_people_affected_from_drought > 0)
+
+joined <- full_join(x = drought, y = countries, c("country_name" = "COUNTRY")) %>% 
+  st_as_sf() %>% 
+  st_make_valid() %>% 
+  filter(country_name != "Antarctica")
+
+plot1 <- ggplot() +
+  geom_sf(data = joined, aes(fill = log(number_of_people_affected_from_drought)),
+          color = "lightgrey") +
+  theme_linedraw() +
+  theme(legend.position = "none") +
+  scale_fill_gradientn(colours = c("#ebffe4", "#afe09d", "#689d55"),
+                       na.value = "grey")
+plot1
+```
+
+### California Migration
+
+```{r}
+# data wrangling
+
+ca_migration <- read_csv(here("data/california_migration.csv"), skip = 1)
+
+movement <- ca_migration %>% 
+  select(1:7) %>% 
+  clean_names() %>% 
+  drop_na()
+
+county_current_residence <- ca_migration %>%
+  select(c(1:6, 9:22))
+
+colnames(county_current_residence) <- county_current_residence[1,]
+county_current_residence <- county_current_residence[-1:-2,]
+colnames(county_current_residence)[1] <- "Current Residence State Code"
+colnames(county_current_residence)[2] <- "Current Residence County Code"
+colnames(county_current_residence)[3] <- "Residence 1 Year Ago State/U.S. Island Area/Foreign Region Code"
+colnames(county_current_residence)[4] <- "State of Current Residence"
+colnames(county_current_residence)[5] <- "County of Current Residence"
+colnames(county_current_residence)[6] <- "State of Residence 1 Year Ago" 
+
+
+county_current_residence <- county_current_residence %>% 
+  clean_names() %>% 
+  select(-c("na", "na_2", "na_3", "na_4", "na_5", "na_6", "na_7"))
+
+
+county_previous_residence <- ca_migration %>%
+  select(c(1:6, 23:36))
+
+colnames(county_previous_residence) <- county_previous_residence[1,]
+county_previous_residence <- county_previous_residence[-1:-2,]
+colnames(county_previous_residence)[1] <- "Current Residence State Code"
+colnames(county_previous_residence)[2] <- "Current Residence County Code"
+colnames(county_previous_residence)[3] <- "Residence 1 Year Ago State/U.S. Island Area/Foreign Region Code"
+colnames(county_previous_residence)[4] <- "State of Current Residence"
+colnames(county_previous_residence)[5] <- "County of Current Residence"
+colnames(county_previous_residence)[6] <- "State of Residence 1 Year Ago" 
+
+county_previous_residence <- county_previous_residence %>% 
+  clean_names() %>% 
+  select(-c("na", "na_2", "na_3", "na_4", "na_5", "na_6", "na_7"))
+```
+
+```{r}
+# mapping
+us_states <- st_read(here("data/US_State_Boundaries/US_State_Boundaries.shp")) %>% 
+  filter(!NAME %in% c("Alaska", "Hawaii", "U.S. Virgin Islands", "Puerto Rico"))
+
+movement_joined <- left_join(x = movement, y = us_states, 
+                             by = c("state_of_residence_1_year_ago" = 
+                                    "NAME")) %>% 
+  st_as_sf() %>% 
+  st_make_valid()
+
+sb_county <- movement_joined %>%
+  filter(county_of_current_residence_5 == "Los Angeles County") %>% 
+  select(county_of_current_residence_5, state_of_residence_1_year_ago, movers_from_state_of_previous_residence_to_county_of_current_residence1,
+         STATE_ABBR) %>% 
+  filter(!state_of_residence_1_year_ago %in% c("District of Columbia", "Africa", "Asia",
+                                              "Central America", "Caribbean", "Europe",
+                                              "Northern America", "Oceania and At Sea", 
+                                              "South America", "Hawaii", "Alaska"))
+
+font_add_google(name = "Ubuntu", family = "Ubuntu")
+showtext_opts(dpi = 320)
+showtext_auto(enable = TRUE)
+
+la_tracts <- get_acs(geography = "county",
+                     variables = "B01003_001",
+                     year = 2021,
+                     survey = "acs5", state = "06", county = "037",
+                     geometry = TRUE)
+
+la_tracts <- la_tracts %>% 
+  mutate(county = "Los Angeles, CA") %>% 
+  st_transform(crs = 4326)
+
+la_county <- ggplot() +
+  geom_sf(data = la_tracts, fill = "#a9d6e5") +
+  geom_sf_text(data = st_centroid(la_tracts), aes(label = county,
+                                                  fontface = "bold", 
+                                                  family = "Ubuntu"),
+               size = 1) +
+  theme_void() +
+  theme(legend.position = "none",
+        panel.border = element_rect(color = "black", fill = NA))
+
+movement_plot <- ggplot() +
+  geom_sf(data = us_states, color = "grey", fill = "white") +
+  geom_sf(data = sb_county, 
+          aes(fill = 
+                log(movers_from_state_of_previous_residence_to_county_of_current_residence1)),
+          color = "grey") +
+  theme_void() +
+  theme(legend.position = "none") +
+  scale_fill_gradientn(colours = c("#ebffe4", "#afe09d", "#689d55"),
+                       na.value = "grey") + 
+  geom_sf_text(data = st_centroid(us_states), aes(label = STATE_ABBR,  
+                                                  fontface = "bold", 
+                                                  family = "Ubuntu"), 
+               color = "black", size = 1.25) +
+  geom_sf_text(data = st_centroid(sb_county), 
+               aes(label =
+                     movers_from_state_of_previous_residence_to_county_of_current_residence1,
+                   family = "Ubuntu"), 
+               color = "black", size = 1.5, vjust = 2.5) +
+  labs(title = "Who's moving to Los Angeles County?",
+       subtitle = "Number of people from each state who moved to LA county in 2021") +
+  theme(plot.title = element_text(family = "Ubuntu",
+                                  size = 15, hjust = 0.5, color = "#2a6f97", 
+                                  face = "bold"),
+        plot.subtitle = element_text(family = "Ubuntu",
+                                  size = 10, hjust = 0.5, color = "black"),
+        panel.background = element_blank())
+movement_plot
+
+inset_map <- ggdraw() +
+  draw_plot(movement_plot) +
+  draw_plot(la_county, height = 0.25, x = -0.4, y = 0.03)
+inset_map
+
+ ggsave(here::here("outputs", paste0("LA_movement_", format(Sys.time(), 
+        "%Y%m%d_%H%M%S"), ".png")), plot = inset_map, width = 6, height = 4, 
+         units = "in", dpi = 300, bg = "white")
+```
+
+### sankey diagram scratch
+
+```{r}
+# sankey diagram
+library(networkD3)
+
+sankey_df <- la_county %>% 
+  mutate(movers_from_state_of_previous_residence_to_county_of_current_residence1 = movers_from_state_of_previous_residence_to_county_of_current_residence1) %>% 
+  rename("source" = state_of_residence_1_year_ago,
+         "target" = county_of_current_residence_5, 
+         "value" = movers_from_state_of_previous_residence_to_county_of_current_residence1) %>% 
+  select(-STATE_ABBR) %>% 
+  st_drop_geometry() %>% 
+  as.data.frame()
+
+nodes <- data.frame(name = unique(c(sankey_df$source, sankey_df$target)))
+links <- data.frame(source = match(sankey_df$source, nodes$name) - 1,
+                    target = match(sankey_df$target, nodes$name) - 1,
+                    value = sankey_df$value)
+
+sankey <- sankeyNetwork(
+  Links = links,
+  Source = "source",
+  Target = "target",
+  Value = "value",
+  Nodes = nodes,
+  units = "count",
+  fontSize = 10,
+  nodeWidth = 45
+)
+
+print(sankey)
+
+saveNetwork(sankey, file = "sankey_diagram.html")
+```
+
+```{r}
+# tidycensus
+source(here::here("data", "KEYS.R"))
+census_api_key(censusKEY)
+
+racevars <- c(White = "P2_005N", 
+              Black = "P2_006N", 
+              Asian = "P2_008N", 
+              Hispanic = "P2_002N")
+
+SB <- get_acs(
+  geography = "tract",
+  variables = racevars,
+  state = "CA",
+  county = "Santa Barbara County",
+  geometry = TRUE,
+  summary_var = "P2_001N",
+  year = 2022,
+  sumfile = "pl"
+) 
+
+
+SB %>%
+  mutate(percent = 100 * (value / summary_value)) %>%
+  ggplot(aes(fill = percent)) +
+  facet_wrap(~variable) +
+  geom_sf(color = NA) +
+  theme_void() + 
+  scale_fill_viridis_c() + 
+  labs(fill = "% of population\n(2020 Census)")
+```
+
+get_flow() tidycensus
+
+```{r}
+la_flows <- get_flows(
+  geography = "metropolitan statistical area",
+  msa = 31080,
+  year = 2020,
+  geometry = TRUE
+  )
+
+la_flow_out <- la_flows %>% 
+  filter(variable == "MOVEDOUT") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(origin = "LA County",
+         destination = state) %>%
+  select(origin, destination, estimate) %>% 
+  filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(estimate = sum(estimate)) 
+
+la_flow_out_subset <- la_flow_out %>% 
+  st_drop_geometry() %>% 
+  filter(destination != "CA") %>% 
+  arrange(desc(estimate)) %>% 
+  slice_head(n = 10)
+
+sankey_df <- la_flow_out_subset %>% 
+  rename("source" = origin,
+         "target" = destination, 
+         "value" = estimate) %>% 
+  st_drop_geometry() %>% 
+  as.data.frame()
+
+nodes <- data.frame(name = unique(c(sankey_df$source, sankey_df$target)))
+links <- data.frame(source = match(sankey_df$source, nodes$name) - 1,
+                    target = match(sankey_df$target, nodes$name) - 1,
+                    value = sankey_df$value)
+
+sankey <- sankeyNetwork(
+  Links = links,
+  Source = "source",
+  Target = "target",
+  Value = "value",
+  Nodes = nodes,
+  units = "count",
+  fontSize = 10,
+  nodeWidth = 45
+)
+
+saveNetwork(sankey, file = "sankey_diagram.html")
+# webshot::install_phantomjs()
+webshot("sankey_diagram.html", "sankey_output.png")
+# use magick to make png a ggplot object
+```
+
+### population line graph
+
+```{r}
+# grab flow data from 2013-2019
+population_flows <- data.frame()
+for (year in seq(2013, 2019, 1)) {
+  
+  flows <- get_flows(
+      geography = 
+        "metropolitan statistical area",
+  msa = 31080,
+  year = year,
+  geometry = FALSE) %>% 
+    mutate(record = year)
+  
+  population_flows <- bind_rows(population_flows,
+                                      flows)
+  
+}
+
+# create population summary table
+population_summary <- population_flows %>% 
+  select(record, variable, estimate) %>%
+  filter(variable != "MOVEDNET") %>% 
+  group_by(record, variable) %>% 
+  summarize(estimate = sum(estimate, na.rm = TRUE)) 
+
+# get total population from 2013-2020
+la_population <- data.frame()
+for (year in seq(2013, 2019, 1)) {
+  population_total <- get_acs(
+  geography = "county",
+  variables = "B01003_001E",
+  state = "CA",
+  county = "Los Angeles County",
+  geometry = FALSE,
+  survey = "acs1",
+  year = year) %>% 
+  mutate(record = year)
+  
+  la_population <- bind_rows(la_population,
+                             population_total)
+  
+}
+
+# clean la_population 
+la_population <- la_population %>% 
+  mutate(total_population = estimate) %>% 
+  select(record, total_population)
+
+# join total population to flow data
+final_population <- left_join(x = population_summary,
+                              y = la_population,
+                              by = "record")
+```

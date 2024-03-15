@@ -1,0 +1,72 @@
+---
+title: "The Santa Barbara Shuffle"
+author: "Kat Le"
+format: html
+editor: visual
+---
+
+## **Motivation**
+
+Santa Barbara, California has been home to me for almost a decade now. When I moved here from Los Angeles, I was a young 17 year old who was eager to start college in this odd beach town that attracted so many interesting people. Throughout my time here, I\'ve had the pleasure of meeting people from all different backgrounds and said my sad goodbyes to friends who moved away for their next adventure. Next year marks my 10th year in sunny Santa Barbara, and it had me thinking: how has the population of Santa Barbara changed throughout the years?
+
+## **Objective**
+
+In this project, I am exploring Santa Barbara County migration flow data. The product I am creating is an infographic that is thoughtfully crafted with ten important design elements in mind at each step. I will use R to create the data visualizations, and I will detail my design process along the way.
+
+## **Data Source**
+
+For this data exploration, I used data collected by the United States Census Bureau as part of the American Community Survey (ACS). The ACS collects information about people across a on an annual basis. 
+
+\
+
+## **Design Process**
+
+When crafting together this infographic, I considered the following ten design elements in the process.
+
+\
+
+1.  ***Graphic Form***
+
+    I chose a choropleth map to display movement data because it\'s easier for the audience to digest state information when it\'s overlaid on top of the corresponding state. For the top 5 states that SB residents are moving to, I chose a horizontal bar chart because it looks like a ranked list while also giving information about the number of movers using the x axis. A bar chart was also the clearest way to display a change in migration flow over time.\
+
+2.  ***Text***
+
+    I used text labels for the chloropleth map to help the audience visualize the population of SB residents from each state and to ultimately reduce eye movement for the audience. I wanted to avoid making the audience switch back and forth between the map and a legend. Since this data is about people, I decided not to round the numbers in the map. For the axes of the bar plots, I rescaled the numbers to lower the data-to-ink ratio.
+
+3.  ***Themes***
+
+    I removed backgrounds from all plots so that the plots could look like one cohesive visualization. I removed unnecessary grid lines to lower the data-to-ink ratio. 
+
+4.  ***Colors***
+
+    When I think of Santa Barbara County, I think of sunshine, plants, and the beach. I wanted to use a soft yet bright color palette. I decided to use yellow, green, and blue throughout the infographic to paint a picture of my vision of Santa Barbara. Green symbolizes the people who moved into Santa Barbara County, and yellow represents the people who moved out in my plots. My use of blue was meant to guide the audience through my infographic. 
+
+5.  ***Typography***
+
+    I remained consistent with the same font for all of the text on my infographic. I chose to use the Ubuntu font family because it is easy to read and visually pleasing to me. All of my titles are bolded, which makes it stand out from the subtitles.\
+
+6.  ***General Design***
+
+    \
+    \
+
+7.  ***Context***
+
+    \
+
+8.  ***Centering my primary message***
+
+9.  ***Considering accessibility***
+
+    I added alt text to each of my figures so that anyone with different visual abilities can still visualize my plots. In addition, I used tools to \
+
+10. ***Applying a DEI lens to my design***
+
+    When migration is talked about in the news, there is usually a focus on migration to and from other countries. It is less common to hear stories of migration between states. One reason I chose to look at migration within the states is to create more media that reminds people that unless we are Indigenous to the land we live on, we all have a history of migration. 
+
+\
+\
+
+## **Final thoughts**
+
+\

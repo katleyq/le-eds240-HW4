@@ -1,0 +1,532 @@
+---
+title: "LeKat-HW3-drafting-viz"
+author: "Kat Le"
+date: 02-24-2024
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## Assignment #3
+
+1.  **Which option do you plan to pursue?**
+
+    **Response**: I plan to pursue option #2 - the infographic route. I want to incorporate all of my plots into one cohesive visual.
+
+2.  **Restate your question(s). Has this changed at all since HW #1?**
+
+    **Response:** My questions have changed since HW #1. I was previously looking at the relationship between land+size ice melting and sea level rise in Santa Barbara county, but I realized I needed to create the polygons for mapping. I wanted to focus more on building my visualization skill-set so I decided to work with US Census data, which has all of the variables and spatial layers that I need. Specifically, I wanted to look at LA county census data and visualize regional gentrification. My questions are: (1) How is LA county's poulation changing over time? (1a) Who is moving into LA? (1b) Where are LA residents moving and is the cost of living cheaper there?
+
+3.  **Explain which variables from your data set(s) you will use to answer your question(s).**
+
+    **Response**: I have 3 datasets that I'm using. The first two datasets are from the US census bureau as part of the American Community Survey. The first ACS dataset has the flow of people data, and I'm using the origin county, destination county, and estimate variables. The second ACS dataset is the total population of LA county by 1 year estimates. The third dataset is from the Missouri Economic Research and Information Center, and it has a cost of living index that I want to incorporate into my sankey diagram. I have supplemental datasets just for spatial mapping.
+
+4.  In HW #2, you should have created some exploratory data viz to better understand your data. You may already have some ideas of how you plan to formally visualize your data, but it's *incredibly* helpful to look at visualizations by other creators for inspiration. Find at least two data visualizations that you could (potentially) borrow / adapt pieces from. Link to them or download and embed them into your `.qmd` file, and explain which elements you might borrow (e.g. the graphic form, legend design, layout, etc.).
+
+    **Response**: I'm thinking about changing my sankey diagram to a chord diagram like the second source I listed below. I like that it shows both the flow in and out. I also like the Immigration to Sweden plot, and I thought about adding that to my map but I did not want it to look too chaotic.
+
+    \(1\) Source: [Georgios Karamanis](https://karaman.is/) ![](/Users/katle/Desktop/Desktop%20-%20kat’s%20MacBook%20Air/MEDS/EDS_240/le-eds240-HW4/data/flow-map.png){fig-alt="Connectivity map showing immigration to Sweden"} (2) Source: [Kyle W. Brown, R Gallery Book (bookdown.org)](https://bookdown.org/content/b298e479-b1ab-49fa-b83d-a57c2b034d49/flow.html#chord-diagram) ![](/Users/katle/Desktop/Desktop%20-%20kat’s%20MacBook%20Air/MEDS/EDS_240/le-eds240-HW4/data/chord-diagram.png){fig-alt="Chord diagram of migration between different regions of the world"}
+
+5.  Hand-draw your anticipated three visualizations (option 1) or infographic (option 2). Take a photo of your drawing and embed it in your rendered `.qmd` file -- **note** that these are not *exploratory* visualizations, but rather your plan for your final visualizations that you will eventually polish and submit with HW #4.
+
+    **Response**: ![](/Users/katle/Desktop/Desktop%20-%20kat’s%20MacBook%20Air/MEDS/EDS_240/le-eds240-HW4/data/hand-drawing.jpg){fig-alt="Handdrawing of HW4 infographic" width="513" height="671"}
+
+6.  Mock up your visualizations using code:
+
+    ```{r libraries-used}
+    #| code-fold: true
+    #| message: false
+    library(tidyverse)
+    library(here)
+    library(janitor)
+    library(sf) # map
+    library(patchwork) # patching
+    library(calecopal)
+    library(showtext) # show custom fonts
+    library(cowplot) # patching
+    library(tidycensus) # census data
+    library(webshot) # html to png
+    library(magick) # png to ggplot object
+    library(networkD3) # sankey diagram
+
+    # set up tidycensus API
+    source(here::here("data", "KEYS.R"))
+    census_api_key(censusKEY)
+    ```
+
+    ```{r data-wrangling}
+    #| code-fold: true
+    #| message: false
+    #| results: false
+    #| warning: false
+    #| code-overflow: wrap
+
+    ############################################################
+    ######## wrangling california migration, us state polygons, and la county polygon 
+
+    # read in data
+    ca_migration <- read_csv(here("data/california_migration.csv"), skip = 1)
+
+    # separate movement data frame from previous+current residence data for tidying, clean names, and drop ey cells
+    movement <- ca_migration %>% 
+      select(1:7) %>% 
+      clean_names() %>% 
+      drop_na()
+
+    # separate current from previous CA migration data
+    county_current_residence <- ca_migration %>%
+      select(c(1:6, 9:22))
+
+    # add back column names to current_residence data
+    colnames(county_current_residence) <- county_current_residence[1,]
+    county_current_residence <- county_current_residence[-1:-2,]
+    colnames(county_current_residence)[1] <- "Current Residence State Code"
+    colnames(county_current_residence)[2] <- "Current Residence County Code"
+    colnames(county_current_residence)[3] <- "Residence 1 Year Ago State/U.S. Island Area/Foreign Region Code"
+    colnames(county_current_residence)[4] <- "State of Current Residence"
+    colnames(county_current_residence)[5] <- "County of Current Residence"
+    colnames(county_current_residence)[6] <- "State of Residence 1 Year Ago" 
+
+    # clean current_residence dataframe
+    county_current_residence <- county_current_residence %>% 
+      clean_names() %>% 
+      select(-c("na", "na_2", 
+                "na_3", "na_4", 
+                "na_5", "na_6", 
+                "na_7"))
+
+    # separate previous_residence data
+    county_previous_residence <- ca_migration %>%
+      select(c(1:6, 23:36))
+
+    # add back column names to previous_residence dataframe
+    colnames(county_previous_residence) <- county_previous_residence[1,]
+    county_previous_residence <- county_previous_residence[-1:-2,]
+    colnames(county_previous_residence)[1] <- "Current Residence State Code"
+    colnames(county_previous_residence)[2] <- "Current Residence County Code"
+    colnames(county_previous_residence)[3] <- "Residence 1 Year Ago State/U.S. Island Area/Foreign Region Code"
+    colnames(county_previous_residence)[4] <- "State of Current Residence"
+    colnames(county_previous_residence)[5] <- "County of Current Residence"
+    colnames(county_previous_residence)[6] <- "State of Residence 1 Year Ago" 
+
+    # clean names of previous_residence and drop NA columns
+    county_previous_residence <- county_previous_residence %>% 
+      clean_names() %>% 
+      select(-c("na", "na_2", "na_3", "na_4", "na_5", "na_6", "na_7"))
+
+    #########################################################
+    ############### adding US polygons 
+
+    # read in US state boundaries and filter for lower 48 US states
+    us_states <- st_read(here("data/US_State_Boundaries/US_State_Boundaries.shp")) %>% 
+      filter(!NAME %in% c("Alaska", "Hawaii", 
+                          "U.S. Virgin Islands", 
+                          "Puerto Rico"))
+
+    # join US polygons to movement data using state name as key then turn dataframe into a valid sf object
+    movement_joined <- left_join(x = movement, 
+                                 y = us_states, 
+                                 by = c("state_of_residence_1_year_ago" = 
+                                        "NAME")) %>% 
+      st_as_sf() %>% 
+      st_make_valid()
+
+    # filter dataframe for LA county then select current residence, previous state, and number of movers. filter for lower 48 states 
+    la_county <- movement_joined %>%
+      filter(county_of_current_residence_5 == "Los Angeles County") %>% 
+      select(county_of_current_residence_5, state_of_residence_1_year_ago, movers_from_state_of_previous_residence_to_county_of_current_residence1,
+             STATE_ABBR) %>% 
+      filter(!state_of_residence_1_year_ago %in% 
+               c("District of Columbia", "Africa", 
+                 "Asia","Central America", 
+                 "Caribbean", "Europe",
+                 "Northern America", 
+                 "Oceania and At Sea", 
+                 "South America", 
+                 "Hawaii", "Alaska"))
+
+    ###########################################################
+    ############### creating LA county inset map 
+
+    # use tidycensus package to get LA county boundaries
+    la_tracts <- get_acs(geography = "county",
+                         variables = "B01003_001",
+                         year = 2021,
+                         survey = "acs5", 
+                         state = "06", 
+                         county = "037",
+                         geometry = TRUE)
+
+    # rename county column and change CRS to match US states and convert to a valid sf object
+    la_tracts <- la_tracts %>% 
+      mutate(county = "Los Angeles, CA") %>% 
+      st_transform(crs = 4326) %>% 
+      st_as_sf() %>% 
+      st_make_valid()
+
+    ###############################################################
+    ############### sankey diagram wrangling 
+
+    # get flow out data
+    la_flows <- get_flows(
+      geography = "metropolitan statistical area",
+      msa = 31080,
+      year = 2020,
+      geometry = TRUE
+      )
+
+    # tidy la flow out data and sum estimates by state
+    la_flow_out <- la_flows %>% 
+      filter(variable == "MOVEDOUT") %>% 
+      select(FULL2_NAME, estimate)  %>% 
+      mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+      mutate(origin = "LA County",
+             destination = state) %>%
+      select(origin, destination, estimate) %>% 
+      filter(destination != "NA") %>% 
+      group_by(origin, destination) %>% 
+      summarize(estimate = sum(estimate)) 
+
+    # take top 10 states california residents are moving to for sankey
+    la_flow_out_subset <- la_flow_out %>% 
+      st_drop_geometry() %>% 
+      filter(destination != "CA") %>% 
+      arrange(desc(estimate)) %>% 
+      slice_head(n = 10)
+
+    ###############################################################
+    ############### line plot wrangling
+    # grab flow data from 2013-2019
+    population_flows <- data.frame()
+    for (year in seq(2013, 2019, 1)) {
+      
+      flows <- get_flows(
+          geography = 
+            "metropolitan statistical area",
+      msa = 31080,
+      year = year,
+      geometry = FALSE) %>% 
+        mutate(record = year)
+      
+      population_flows <- bind_rows(population_flows,
+                                          flows)
+      
+    }
+
+    # create flow summary table
+    flow_summary <- population_flows %>% 
+      select(record, variable, estimate) %>%
+      filter(variable != "MOVEDNET") %>% 
+      group_by(record, variable) %>% 
+      summarize(estimate = sum(estimate, na.rm = TRUE)) 
+
+    # get total population from 2013-2020
+    la_population <- data.frame()
+    for (year in seq(2013, 2019, 1)) {
+      population_total <- get_acs(
+      geography = "county",
+      variables = "B01003_001E",
+      state = "CA",
+      county = "Los Angeles County",
+      geometry = FALSE,
+      survey = "acs1",
+      year = year) %>% 
+      mutate(record = year)
+      
+      la_population <- bind_rows(la_population,
+                                 population_total)
+      
+    }
+
+    # clean la_population 
+    la_population <- la_population %>% 
+      select(record, estimate) %>%
+      mutate(variable = "total_population")
+
+    # join total population to flow data
+    population_summary <- rbind(flow_summary, la_population)
+
+    ###############################################################
+    ############### load customized google font 
+
+    # add ubuntu font
+    font_add_google(name = "Ubuntu", family = "Ubuntu")
+
+    # set graphics setting for visual outputs
+    showtext_opts(dpi = 320)
+    showtext_auto(enable = TRUE)
+
+    ```
+
+    ```{r 1-chloropleth-map}
+    #| code-fold: true
+    #| message: false
+    #| results: false
+    #| warning: false
+    #| eval: true
+    #| echo: true
+    #| code-overflow: wrap
+    #| fig-align: "center"
+    #| out-width: "100%"
+    #| fig-alt: "chloropleth map of new la county residents by state"
+
+
+    # create inset map for chloropleth map
+    la_county_inset <- ggplot() +
+      geom_sf(data = la_tracts, fill = "#a9d6e5") +
+      geom_sf_text(data = st_centroid(la_tracts), 
+                   aes(label = county,
+                       fontface = "bold", 
+                       family = "Ubuntu"),
+                   size = 1) +
+      theme_void() +
+      theme(legend.position = "none",
+            panel.border = element_rect(color = "black", 
+                                        fill = NA))
+
+    # create incoming resident plot
+    movement_plot <- ggplot() +
+      geom_sf(data = us_states, 
+              color = "grey", 
+              fill = "white") +
+      geom_sf(data = la_county, 
+              aes(fill = 
+                    log(movers_from_state_of_previous_residence_to_county_of_current_residence1)),
+              color = "grey") +
+      theme_void() +
+      theme(legend.position = "none") +
+      scale_fill_gradientn(colours = 
+                             c("#ebffe4", "#afe09d", "#689d55"),
+                           na.value = "grey") + 
+      geom_sf_text(data = st_centroid(us_states), 
+                   aes(label = STATE_ABBR,
+                       fontface = "bold", 
+                       family = "Ubuntu"), 
+                   color = "black", 
+                   size = 1.25) +
+      geom_sf_text(data = st_centroid(la_county), 
+                   aes(label =
+                         movers_from_state_of_previous_residence_to_county_of_current_residence1,
+                       family = "Ubuntu"), 
+                   color = "black", 
+                   size = 1.5, 
+                   vjust = 2.5) +
+      labs(title = "Who's moving to Los Angeles County?",
+           subtitle = "Number of people from each state who moved to LA county in 2021") +
+      theme(plot.title = element_text(family = "Ubuntu",
+                                      size = 15, hjust = 0.5, 
+                                      color = "#2a6f97", 
+                                      face = "bold"),
+            plot.subtitle = element_text(family = "Ubuntu",
+                                      size = 10, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            panel.background = element_blank())
+
+    # use cowplot to patch inset map to movement_plot
+    inset_map <- ggdraw() +
+      draw_plot(movement_plot) +
+      draw_plot(la_county_inset, 
+                height = 0.25, 
+                x = -0.4, 
+                y = 0.03)
+    # output png
+     # ggsave(here::here("outputs", paste0("LA_movement_", format(Sys.time(),
+     #        "%Y%m%d_%H%M%S"), ".png")), 
+     #        plot = inset_map, width = 6, height = 4,
+     #        units = "in", dpi = 300, bg = "white")
+
+    inset_map
+    ```
+
+    ```{r sankey-diagram}
+    #| code-fold: true
+    #| message: false
+    #| results: false
+    #| warning: false
+    #| eval: true
+    #| echo: true
+    #| code-overflow: wrap
+
+
+    # create dataframe with source, target, and value for sankey diagram structure. drop geometry and reformat as dataframe
+    sankey_df <- la_flow_out_subset %>% 
+      rename("source" = origin,
+             "target" = destination, 
+             "value" = estimate) %>% 
+      st_drop_geometry() %>% 
+      as.data.frame()
+
+    # set up nodes by finding unique source and target values
+    nodes <- data.frame(name = unique(c(sankey_df$source, 
+                                        sankey_df$target)))
+
+    # set up links from source to target and attaching values
+    links <- data.frame(source = match(sankey_df$source, 
+                                       nodes$name) - 1,
+                        target = match(sankey_df$target, 
+                                       nodes$name) - 1,
+                        value = sankey_df$value)
+
+    ######################
+    # Add a 'group' column to each connection:
+    links$group <- as.factor(c("type_a","type_b","type_c",
+                               "type_d","type_e","type_f",
+                               "type_g", "type_h", "type_i",
+                               "type_j"))
+     
+    # Add a 'group' column to each node. Here I decide to put all of them in the same group to make them grey
+    nodes$group <- as.factor(c("my_unique_group"))
+     
+    # Give a color for each group:
+    my_color <- 'd3.scaleOrdinal() .domain(["type_a", "type_b", "type_c","type_d","type_e","type_f", "type_g", "type_h", "type_i", "type_j", "my_unique_group"]) .range(["#d9ed92", "#b5e48c", "#99d98c", "#76c893", "#52b69a", "#34a0a4", "#168aad", "#1a759f", "#1e6091", "#184e77", "#dad7cd"])'
+     
+
+    ######################
+    # create sankey diagram
+    sankey <- sankeyNetwork(
+      Links = links,
+      Source = "source",
+      Target = "target",
+      Value = "value",
+      Nodes = nodes,
+      units = "count",
+      NodeID = "name", 
+      colourScale=my_color, 
+      LinkGroup="group", 
+      NodeGroup="group",
+      fontSize = 10,
+      nodeWidth = 45
+    )
+
+    # save sankey diagram as html to visualize (can't do it in R)
+    saveNetwork(sankey, file = "sankey_diagram.html")
+
+    # use webshot package to save html output as png. install the following if needed
+    # webshot::install_phantomjs()
+    webshot("sankey_diagram.html", "sankey_output.png")
+
+    # use magick to read in a png then convert to a ggplot object for patching
+    sankey_image <- image_read("sankey_output.png") %>% 
+      image_ggplot()
+
+    # ggplot of sankey diagram
+    ggplot() +
+      draw_plot(sankey_image) +
+      labs(title = "Where are LA county residents moving?",
+           subtitle = "Top 10 states where LA county residents are moving") +
+      theme(plot.title = element_text(family = "Ubuntu",
+                                      size = 15, 
+                                      hjust = 0.5, 
+                                      color = "#2a6f97", 
+                                      face = "bold"),
+            plot.subtitle = element_text(family = "Ubuntu",
+                                      size = 10, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            panel.background = element_blank())
+    ```
+
+    ```{r population-line-plot}
+    #| code-fold: true
+    #| message: false
+    #| results: false
+    #| warning: false
+    #| eval: true
+    #| echo: true
+    #| code-overflow: wrap
+    #| fig-align: "center"
+    #| out-width: "100%"
+
+    # create line plot of population summary
+    flow_plot <- population_summary %>% 
+      filter(variable %in% c("MOVEDIN", "MOVEDOUT")) %>% 
+      ggplot(aes(x = record, y = estimate, color = variable)) +
+      geom_line() +
+      labs(title = "Number of people moving in and out of LA County",
+           subtitle = "ACS Migration Flow Survey",
+           y = "Number of People",
+           x = "Year") +
+      scale_color_manual(values = c("#cc2936", "#344966")) +
+      guides(color = guide_legend(title = NULL)) +
+      theme_classic() +
+      theme(plot.title = element_text(family = "Ubuntu",
+                                      size = 13, hjust = 0.5, 
+                                      color = "#2a6f97", 
+                                      face = "bold"),
+            plot.subtitle = element_text(family = "Ubuntu",
+                                      size = 11, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            panel.background = element_blank(),
+            axis.title.y = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            axis.title.x = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            axis.text.x = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            axis.text.y = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"))
+    flow_plot
+
+    tot_pop_plot <- population_summary %>% 
+      filter(variable == "total_population") %>% 
+      ggplot(aes(x = record, y = estimate, color = variable)) +
+      geom_line() +
+      labs(title = "Total population of LA county",
+           subtitle = "ACS 1 Year Estimates",
+           y = "Number of People",
+           x = "Year") +
+      scale_color_manual(values = c("#588157")) +
+      theme_classic() +
+      theme(legend.position = "none",
+            plot.title = element_text(family = "Ubuntu",
+                                      size = 13, hjust = 0.5, 
+                                      color = "#2a6f97", 
+                                      face = "bold"),
+            plot.subtitle = element_text(family = "Ubuntu",
+                                      size = 11, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            panel.background = element_blank(),
+            axis.title.y = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            axis.title.x = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            axis.text.x = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"),
+            axis.text.y = element_text(family = "Ubuntu",
+                                      size = 8, 
+                                      hjust = 0.5, 
+                                      color = "black"))
+    tot_pop_plot
+    ```
+
+7.  Answer the following questions:
+
+    -   ***What challenges did you encounter or anticipate encountering as you continue to build / iterate on your visualizations in R?***
+
+        **Response**: I encountered many challenges, but one silly challenge that took me an hour to figure out was how to separate out state codes from a character string, which I'm happy I figured out because I know I'll use that trick again. After I figured that out, I had issues plotting it onto a US map - particularly the smaller east coast states. I was able to plot it, but the text is squished together, and I'm still figuring that one out. In addition, I had to learn packages that I have not worked with yet, specifically networkD3 for my sankey diagram. I'm still having issues trying to customize the sankey diagram to a color palette that matches the rest of my infographic. In addition, I want to add my cost of living data to the sankey diagram, and that's a challenge I'm still working on. Overall, I think I'm going to encounter more challenges trying to patch my figures together into a cohesive visual.
+
+    -   ***What ggplot extension tools / packages do you need to use to build your visualizations? Are there any that we haven't covered in class that you'll be learning how to use for your visualizations.***
+
+        **Response**: I had to learn the following new packages: tidycensus (used it before, but never made my own API calls), networkD3 (sankey diagram in R that only outputs in html), webshot (turning html sankey diagram to png), magick (turning png to ggplot object), cowplot (two stitch ggplot objects together). I used sf and tidyverse as well, but we learned that in class.
+
+    -   ***What feedback do you need from the instructional team and / or your peers to ensure that your intended message is clear?***
+
+        **Response**: I wanted to learn how to make advanced plots so I chose a sankey diagram and a map. I'm wondering if a simpler plot would make the message more clear and allow me to include more information. I'm also wondering if a chord diagram would be better for visualizing my flow data.

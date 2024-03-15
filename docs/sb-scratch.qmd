@@ -1,0 +1,377 @@
+---
+title: "sb-scratch"
+format: html
+editor: visual
+---
+
+To do
+
+-   ADD ALT TEXT
+
+-   ADD DATA SOURCE TO INFOGRAPHIC
+
+-   
+
+```{r}
+#| code-fold: true
+#| message: false
+library(tidyverse)
+library(here)
+library(janitor)
+library(sf) # map
+library(ggstar) 
+library(extrafont) # star annotation
+library(glue) # parsing html
+library(patchwork) # patching
+library(calecopal) # color palettes
+library(showtext) # show custom fonts
+library(cowplot) # patching
+library(tidycensus) # census data
+library(webshot) # html to png
+library(magick) # png to ggplot object
+library(networkD3) # sankey diagram
+library(fiftystater) # us map with alaska + hawaii
+
+# set up tidycensus API
+source(here::here("data", "KEYS.R"))
+census_api_key(censusKEY)
+```
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+###############################################################
+############### load customized google font 
+
+# add ubuntu font
+font_add_google(name = "Ubuntu", family = "Ubuntu")
+
+# set graphics setting for visual outputs
+showtext_opts(dpi = 400)
+showtext_auto(enable = TRUE)
+
+############################################################
+######## wrangling california migration, us state polygons, and sb county polygon
+
+# grab flow data from 2015-2020
+sb_flows <- data.frame()
+for (year in seq(2015, 2020, 1)) {
+  
+  flows <- get_flows(
+      geography = 
+        "metropolitan statistical area",
+  msa = 42220,
+  year = year,
+  geometry = FALSE) %>% 
+    mutate(record = year)
+  
+  sb_flows <- bind_rows(sb_flows, flows)
+  
+}
+
+
+# tidy sb flow data and sum estimates by state
+sb_flow_in <- sb_flows %>% 
+  filter(variable == "MOVEDIN") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(destination = "SB County",
+         origin = state) %>%
+  select(origin, destination, estimate) %>% 
+  #filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(movers = sum(estimate)) %>% 
+  st_drop_geometry()
+
+#########################################################
+############### adding US polygons 
+
+# read in US state boundaries and filter for lower 48 US states
+us_states <- st_read(here("data/US_State_Boundaries/US_State_Boundaries.shp")) %>% 
+  filter(!NAME %in% c("Alaska", "Hawaii", 
+                      "U.S. Virgin Islands", 
+                      "Puerto Rico"))
+
+# join US polygons to movement data using state name as key then turn dataframe into a valid sf object
+movement_joined <- full_join(x = sb_flow_in, 
+                             y = us_states,
+                             by = c("origin" = "STATE_ABBR")) %>% 
+  st_as_sf() %>% 
+  st_make_valid()
+
+# filter dataframe for all states
+sb_county <- movement_joined %>%
+  select(origin, destination, movers)
+
+# filter dataframe for data from big states
+big_states <- movement_joined %>%
+  select(origin, destination, movers) %>% 
+  filter(!origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", "MA",
+                        "FL")) %>% 
+  mutate(movers = if_else(is.na(movers), 0, movers))
+
+# filter dataframe for small states and keep geometry
+small_states_polygons <- movement_joined %>%
+  select(origin, destination, movers) %>% 
+  filter(origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", 
+                       "MA", "FL"))
+
+#filter dataframe for data from small states
+small_states <- movement_joined %>%
+  st_drop_geometry() %>% 
+  select(origin, destination, movers) %>% 
+  filter(origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", "MA", "FL")) %>% 
+  mutate(longitude = case_when(
+    origin == "DC" ~ "-72.", #original -77
+    origin == "MD" ~ "-71.", # original -77
+    origin == "DE" ~ "-70.", # original -76
+    origin == "NJ" ~ "-69.",# original -74
+    origin == "CT" ~ "-68.", # original -73
+    origin == "RI" ~ "-67.", # original -71
+    origin == "MA" ~ "-66.", # original -71
+    origin == "FL" ~ "-81.5"
+  )) %>% 
+  mutate(latitude = case_when(
+    origin == "DC" ~ "33.", # original 39
+    origin == "MD" ~ "35.", # original 39
+    origin == "DE" ~ "37.", # original 40
+    origin == "NJ" ~ "39.", # original 40
+    origin == "CT" ~ "41.", # original 42
+    origin == "RI" ~ "43.", # original 42
+    origin == "MA" ~ "45.", # original 42
+    origin == "FL" ~ "29"
+  )) %>% 
+  mutate(longitude = as.numeric(longitude),
+         latitude = as.numeric(latitude)) %>% 
+  st_as_sf(coords = c("longitude", "latitude"),
+           crs = 4326) %>% 
+  st_make_valid()
+```
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| fig-alt: "A chloropleth map of the United States where each state contains the number of people from the state who moved to Santa Barbara County from 2015-2020. Data is from the US Census Bureau's American Community Survey Data."
+# create incoming resident plot
+movement_plot <- ggplot() +
+  # create color log-transformed sf objects for big states 
+   geom_sf(data = big_states, 
+           aes(fill = log(movers)),
+           color = "grey") +
+  # create color log-transformed sf objects for small states
+   geom_sf(data = small_states_polygons, 
+           aes(fill = log(movers)),
+           color = "grey") +
+  # create title
+  labs(title = "Who's moving into SB county?",
+       subtitle = "Number of people from each state who moved to SB from 2015-2020") +
+  # start with blank canvas
+  theme_void() +
+  # remove legend
+  theme(legend.position = "none") +
+  # specify colors
+  scale_fill_gradientn(colours = c("white", "#ebffe4",
+                                   "#afe09d","#689d55",
+                                   "#588157"),
+                       na.value = "white") +
+  # create state labels for big states
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = origin,
+                   fontface = "bold", 
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2,
+               vjust = -0.5) +
+  # create number of movers labels for big states
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2, 
+               vjust = 1.5,
+               fontface = "bold") +
+  # create state labels for smaller states
+  geom_sf_text(data = small_states, 
+                   aes(label = origin,
+                       family = "Ubuntu",
+                       fontface = "bold"), 
+                color = "black", 
+                size = 2, 
+                vjust = 2.5) +
+  # create number of movers labels for small states
+  geom_sf_text(data = st_centroid(small_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 1.75, 
+               vjust = 4.5) +
+  # create all the lines from small states to labels
+  annotate("segment", x = -72.5, xend = -77, y = 32.5, 
+           yend = 38.5, color = "black", size = 0.2) + #DC
+  annotate("segment", x = -71.5, xend = -77, y = 34.5, 
+           yend = 39, color = "black", size = 0.2) + #MD
+  annotate("segment", x = -70.5, xend = -75.5, y = 36.5, 
+           yend = 39, color = "black", size = 0.2) + #DE
+  annotate("segment", x = -69.5, xend = -74.4, y = 38.5, 
+           yend = 40, color = "black", size = 0.2) + #NJ
+  annotate("segment", x = -68.5, xend = -72.7, y = 40.5, 
+           yend = 41.6, color = "black", size = 0.2) + #CT
+  annotate("segment", x = -68, xend = -71.5, y = 42, 
+           yend = 41.6, color = "black", size = 0.2) + #RI
+  annotate("segment", x = -67, xend = -71.8, y = 44, 
+           yend = 42.2, color = "black", size = 0.2) + #MA
+  # specify theme
+  theme(panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                                  size = 18,
+                                  color = "#508CA4",
+                                  face = "bold"),
+        plot.subtitle = element_text(family = "Ubuntu")
+        ) 
+
+movement_plot
+
+# output png
+ ggsave(here::here("outputs", paste0("SB_movement_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = movement_plot, width = 6, height = 4,
+         units = "in", dpi = 400, bg = "transparent")
+
+```
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| #| fig-alt: "A horizontal bar chart of the top destinations where Santa Barbara residents are moving to where Oregon, Texas, Arizona, Washington, and Nevada are placed at the top of the list. Data is from the US Census Bureau's American Community Survey Data."
+# tidy la flow out data and sum estimates by state
+sb_flow_out <- sb_flows %>% 
+  filter(variable == "MOVEDOUT") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(destination = "SB County",
+         origin = state) %>%
+  select(origin, destination, estimate) %>% 
+  filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(movers = sum(estimate)) %>% 
+  st_drop_geometry() %>%
+  filter(origin != "CA") %>% 
+  arrange(desc(movers)) %>% 
+  head(5)
+
+# create horizontal bar chart of states SB residents are moving to with labels
+top5plot <- sb_flow_out %>% 
+  mutate(full_name = case_when(
+    origin == "OR" ~ " OREGON",
+    origin == "TX" ~ " TEXAS",
+    origin == "AZ" ~ " ARIZONA",
+    origin == "WA" ~ " WASHINGTON",
+    origin == "NV" ~ " NEVADA"
+  )) %>% 
+  ggplot(aes(x = movers, y = fct_reorder(full_name, movers))) +
+  geom_col(fill = "#FFBB02") +
+  labs(title = "Top destinations where SB residents are moving out to:",
+       y = "Destination",
+       x = "Number of Movers") +
+  scale_x_continuous(labels = scales::label_number(scale = 0.001, suffix = "k")) +
+  geom_text(aes(label = full_name, x = 0),
+            family = "Ubuntu",
+            fontface = "bold",
+            hjust = 0,
+            vjust = 1,
+            # color = "#634b66",
+            color = "white",
+            size = 8) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                            color = "#508CA4",
+                            hjust = 0.5,
+                            size = 20,
+                            face = "bold"),
+        text = element_text(family = "Ubuntu",
+                            color = "#223843"),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(size = 11,
+                                    family = "Ubuntu"),
+        axis.text.x = element_text(size = 14,
+                                   family = "Ubuntu"),
+        axis.text.y = element_blank(),
+        axis.line.x = element_line(color = "#83643A", linewidth = .4),
+        axis.ticks.x = element_line(color = "#83643A", linewidth = .4)) +
+  coord_cartesian(xlim = c(0, 4500))
+top5plot
+
+# output png
+ ggsave(here::here("outputs", paste0("top10plot_sb_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = top5plot, width = 6, height = 3,
+         units = "in", dpi = 500, bg = "transparent")
+```
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| #| fig-alt: "A vertical bar chart of the net change in migration flows for Santa Barbara County from 2015 to 2020 where the net change is positive from 2015-2018 then negative from 2019-2020. Data is from the US Census Bureau's American Community Survey Data."
+# tidy la flow net data and sum estimates by state
+sb_flow_net <- sb_flows %>% 
+  filter(variable == "MOVEDNET") %>% 
+  select(record, variable, estimate) %>%
+  mutate(year = as.factor(record)) %>% 
+  group_by(year) %>% 
+  summarize(net_movement = sum(estimate, na.rm = TRUE)) %>% 
+  mutate(color_tag = if_else(net_movement < 0, "red", "blue"))
+
+# create the net movement p
+net_plot <- ggplot(data = sb_flow_net, 
+                   aes(x = year, y = net_movement,
+                       fill = color_tag)) +
+  geom_col(size = 2) +
+  scale_y_continuous(labels = scales::label_number(scale = 0.001, suffix = "k"),
+                     limits = c(-4000, 4000)) +
+  scale_x_discrete(breaks = c(2015, 2016, 2017, 2018, 2019, 2020)) +
+  scale_fill_manual(values = c(blue = "#689d55", red = "#FFBB02")) +
+  labs(title = "Net Migration Across Years") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_text(size = 16, family = "Ubuntu"),
+        axis.text.y = element_text(size = 16, family = "Ubuntu"),
+        axis.title.y = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major.y = element_line(color = "lightgrey"),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(size = 20, family = "Ubuntu", 
+                                  color = "#508CA4", hjust = 0.5,
+                                  face = "bold"))
+net_plot
+
+# output png
+ ggsave(here::here("outputs", paste0("netplot_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = net_plot, width = 5, height = 4,
+         units = "in", dpi = 500, bg = "transparent")
+```

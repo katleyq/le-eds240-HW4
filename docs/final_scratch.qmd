@@ -1,0 +1,501 @@
+---
+title: "LeKat-HW3-drafting-viz"
+author: "Kat Le"
+date: 02-24-2024
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+```{r libraries-used}
+#| code-fold: true
+#| message: false
+library(tidyverse)
+library(here)
+library(janitor)
+library(sf) # map
+library(ggstar) 
+library(extrafont) # star annotation
+library(glue) # parsing html
+library(patchwork) # patching
+library(calecopal) # color palettes
+library(showtext) # show custom fonts
+library(cowplot) # patching
+library(tidycensus) # census data
+library(webshot) # html to png
+library(magick) # png to ggplot object
+library(networkD3) # sankey diagram
+#devtools::install_github("wmurphyrd/fiftystater")
+library(fiftystater) # us map with alaska + hawaii
+
+# set up tidycensus API
+source(here::here("data", "KEYS.R"))
+census_api_key(censusKEY)
+```
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+###############################################################
+############### load customized google font 
+
+# add ubuntu font
+font_add_google(name = "Ubuntu", family = "Ubuntu")
+
+# set graphics setting for visual outputs
+showtext_opts(dpi = 400)
+showtext_auto(enable = TRUE)
+
+############################################################
+######## wrangling california migration, us state polygons, and la county polygon
+
+# grab flow data from 2015-2020
+la_flows <- data.frame()
+for (year in seq(2015, 2020, 1)) {
+  
+  flows <- get_flows(
+      geography = 
+        "metropolitan statistical area",
+  msa = 31080,
+  year = year,
+  geometry = FALSE) %>% 
+    mutate(record = year)
+  
+  la_flows <- bind_rows(la_flows, flows)
+  
+}
+
+
+# tidy la flow data and sum estimates by state
+la_flow_in <- la_flows %>% 
+  filter(variable == "MOVEDIN") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(destination = "LA County",
+         origin = state) %>%
+  select(origin, destination, estimate) %>% 
+  filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(movers = sum(estimate)) %>% 
+  st_drop_geometry()
+
+#########################################################
+############### adding US polygons 
+
+# read in US state boundaries and filter for lower 48 US states
+us_states <- st_read(here("data/US_State_Boundaries/US_State_Boundaries.shp")) %>% 
+  filter(!NAME %in% c("Alaska", "Hawaii", 
+                      "U.S. Virgin Islands", 
+                      "Puerto Rico"))
+
+# join US polygons to movement data using state name as key then turn dataframe into a valid sf object
+movement_joined <- left_join(x = la_flow_in, 
+                             y = us_states,
+                             by = c("origin" = "STATE_ABBR")) %>% 
+  st_as_sf() %>% 
+  st_make_valid()
+
+# filter dataframe for all states
+la_county <- movement_joined %>%
+  select(origin, destination, movers)
+
+# filter dataframe for data from big states
+big_states <- movement_joined %>%
+  select(origin, destination, movers) %>% 
+  filter(!origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", "MA",
+                        "FL"))
+# filter dataframe for small states and keep geometry
+small_states_polygons <- movement_joined %>%
+  select(origin, destination, movers) %>% 
+  filter(origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", 
+                       "MA", "FL"))
+
+#filter dataframe for data from small states
+small_states <- movement_joined %>%
+  st_drop_geometry() %>% 
+  select(origin, destination, movers) %>% 
+  filter(origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", "MA", "FL")) %>% 
+  mutate(longitude = case_when(
+    origin == "DC" ~ "-72.", #original -77
+    origin == "MD" ~ "-71.", # original -77
+    origin == "DE" ~ "-70.", # original -76
+    origin == "NJ" ~ "-69.",# original -74
+    origin == "CT" ~ "-68.", # original -73
+    origin == "RI" ~ "-67.", # original -71
+    origin == "MA" ~ "-66.", # original -71
+    origin == "FL" ~ "-81.5"
+  )) %>% 
+  mutate(latitude = case_when(
+    origin == "DC" ~ "33.", # original 39
+    origin == "MD" ~ "35.", # original 39
+    origin == "DE" ~ "37.", # original 40
+    origin == "NJ" ~ "39.", # original 40
+    origin == "CT" ~ "41.", # original 42
+    origin == "RI" ~ "43.", # original 42
+    origin == "MA" ~ "45.", # original 42
+    origin == "FL" ~ "29"
+  )) %>% 
+  mutate(longitude = as.numeric(longitude),
+         latitude = as.numeric(latitude)) %>% 
+  st_as_sf(coords = c("longitude", "latitude"),
+           crs = 4326) %>% 
+  st_make_valid()
+
+# create incoming resident plot
+movement_plot <- ggplot() +
+   geom_sf(data = big_states, 
+           aes(fill = 
+                 log(movers)),
+           color = "grey") +
+   geom_sf(data = small_states_polygons, 
+           aes(fill = 
+                log(movers)),
+           color = "grey") +
+  theme_void() +
+  theme(legend.position = "none") +
+  scale_fill_gradientn(colours = c("white", "#ebffe4", "#afe09d", "#689d55",
+                                   "#588157"),
+                       na.value = "grey") +
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = origin,
+                   fontface = "bold", 
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2,
+               vjust = -0.5) +
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2, 
+               vjust = 1.5,
+               face = "bold") +
+  geom_sf_text(data = small_states, 
+                   aes(label = origin,
+                       family = "Ubuntu",
+                       fontface = "bold"), 
+                color = "black", 
+                size = 2, 
+                vjust = 2.5) +
+  geom_sf_text(data = st_centroid(small_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 1.75, 
+               vjust = 4.5) +
+  labs(title = "Who's moving to Los Angeles County?",
+       subtitle = "Number of people from each state who moved to LA county from 2015-2020") +
+  ggstar::geom_star(aes(x = -118, y = 34), 
+             starshape =24, size = 7, 
+            color = "black", fill = "gold") +
+  theme(plot.title = element_text(family = "Ubuntu",
+                                  size = 20, hjust = 0.5, 
+                                  color = "#2a6f97", 
+                                  face = "bold"),
+        plot.subtitle = element_text(family = "Ubuntu",
+                                  size = 10, 
+                                  hjust = 0.5, 
+                                  color = "black"),
+        panel.border = element_blank(),
+        plot.background = element_blank()
+        ) 
+
+movement_plot
+
+# output png
+ ggsave(here::here("outputs", paste0("LA_movement_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = movement_plot, width = 6, height = 4,
+         units = "in", dpi = 400, bg = "transparent")
+
+
+```
+### title 
+```{r}
+title <- ggplot() +
+  labs(title = "Title here") +
+  theme_void() +
+  theme(title = element_text(size = 15,
+                             family = "Ubuntu"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.background = element_blank())
+title
+
+# output png
+ ggsave(here::here("outputs", paste0("title_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = title, width = 6, height = 1,
+         units = "in", dpi = 400, bg = "transparent")
+
+```
+
+### map
+```{r}
+library(grImport2)
+destination_icon = readPicture(here::here("fonts", "location-dot-solid.svg"))
+
+# create incoming resident plot
+movement_plot <- ggplot() +
+   geom_sf(data = big_states, 
+           aes(fill = 
+                 log(movers)),
+           color = "grey") +
+   geom_sf(data = small_states_polygons, 
+           aes(fill = 
+                log(movers)),
+           color = "grey") +
+  labs(title = "Who's moving into LA county?",
+       subtitle = "Number of people from each state who moved to LA from 2015-2020") +
+  theme_void() +
+  theme(legend.position = "none") +
+  scale_fill_gradientn(colours = c("white", "#ebffe4", "#afe09d", "#689d55",
+                                   "#588157"),
+                       na.value = "grey") +
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = origin,
+                   fontface = "bold", 
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2,
+               vjust = -0.5) +
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = scales::comma(signif(movers, digits = -1),
+                                         scale = 0.001,
+                                         suffix = "k",
+                                         drop0trailing=TRUE),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2, 
+               vjust = 1.5,
+               face = "bold") +
+  geom_sf_text(data = small_states, 
+                   aes(label = origin,
+                       family = "Ubuntu",
+                       fontface = "bold"), 
+                color = "black", 
+                size = 2, 
+                vjust = 2.5) +
+  geom_sf_text(data = st_centroid(small_states), 
+               aes(label = scales::comma(signif(movers, digits = -1),
+                                         scale = 0.001,
+                                         suffix = "k",
+                                         drop0trailing=TRUE),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 1.75, 
+               vjust = 4.5) +
+  annotate("segment", x = -72.5, xend = -77, y = 32.5, yend = 38.5, color = "black", size = 0.2) + #DC
+  annotate("segment", x = -71.5, xend = -77, y = 34.5, yend = 39, color = "black", size = 0.2) + #MD
+  annotate("segment", x = -70.5, xend = -75.5, y = 36.5, yend = 39, color = "black", size = 0.2) + #DE
+  annotate("segment", x = -69.5, xend = -74.4, y = 38.5, yend = 40, color = "black", size = 0.2) + #NJ
+  annotate("segment", x = -68.5, xend = -72.7, y = 40.5, yend = 41.6, color = "black", size = 0.2) + #CT
+  annotate("segment", x = -68, xend = -71.5, y = 42, yend = 41.6, color = "black", size = 0.2) + #RI
+  annotate("segment", x = -67, xend = -71.8, y = 44, yend = 42.2, color = "black", size = 0.2) + #MA  
+  theme(panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                                  size = 18,
+                                  hjust = 0.5,
+                                  color = "#508CA4",
+                                  face = "bold"),
+        plot.subtitle = element_text(family = "Ubuntu",
+                                     hjust = 0.5)
+        ) 
+
+movement_plot
+
+# output png
+ ggsave(here::here("outputs", paste0("LA_movement_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = movement_plot, width = 6, height = 4,
+         units = "in", dpi = 400, bg = "transparent")
+
+
+```
+
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+# tidy la flow out data and sum estimates by state
+la_flow_out <- la_flows %>% 
+  filter(variable == "MOVEDOUT") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(destination = "LA County",
+         origin = state) %>%
+  select(origin, destination, estimate) %>% 
+  filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(movers = sum(estimate)) %>% 
+  st_drop_geometry() %>%
+  filter(origin != "CA") %>% 
+  arrange(desc(movers)) %>% 
+  head(5)
+
+top5plot <- la_flow_out %>% 
+  mutate(full_name = case_when(
+    origin == "TX" ~ " TEXAS",
+    origin == "AZ" ~ " ARIZONA",
+    origin == "NV" ~ " NEVADA",
+    origin == "WA" ~ " WASHINGTON",
+    origin == "NY" ~ " NEW YORK"
+  )) %>% 
+  ggplot(aes(x = movers, y = fct_reorder(full_name, movers))) +
+  geom_col(fill = "#FFBB02") +
+  labs(title = "Top destinations where LA residents are moving out to:",
+       y = "Destination",
+       x = "Number of Movers") +
+  scale_x_continuous(labels = scales::label_number(scale = 0.001, suffix = "k")) +
+  geom_text(aes(label = full_name, x = 0),
+            family = "Ubuntu",
+            fontface = "bold",
+            hjust = 0,
+            vjust = 1,
+            # color = "#634b66",
+            color = "white",
+            size = 8) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                            color = "#508CA4",
+                            hjust = 0.5,
+                            size = 20,
+                            face = "bold"),
+        text = element_text(family = "Ubuntu",
+                            color = "#223843"),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(size = 11,
+                                    family = "Ubuntu"),
+        axis.text.x = element_text(size = 14,
+                                   family = "Ubuntu"),
+        axis.text.y = element_blank(),
+        axis.line.x = element_line(color = "#83643A", linewidth = .4),
+        axis.ticks.x = element_line(color = "#83643A", linewidth = .4)) +
+  coord_cartesian(xlim = c(0, 150000))
+top5plot
+
+# output png
+ ggsave(here::here("outputs", paste0("top10plot_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = top5plot, width = 6, height = 3,
+         units = "in", dpi = 500, bg = "transparent")
+```
+
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+# tidy la flow net data and sum estimates by state
+la_flow_net <- la_flows %>% 
+  filter(variable == "MOVEDNET") %>% 
+  select(record, variable, estimate) %>%
+  mutate(year = as.factor(record)) %>% 
+  group_by(year) %>% 
+  summarize(net_movement = sum(estimate, na.rm = TRUE))
+
+net_plot <- ggplot(data = la_flow_net, 
+                   aes(x = year, y = net_movement)) +
+  geom_line(color = "#91AEC1", aes(group = 1),
+            size = 2)+
+  geom_text(aes(x = year, y = net_movement, label = "▶",
+                family = "HiraKakuPro-W3"
+                ),
+            size = 20,
+            angle = 335,
+            fontface = "bold",
+            color = "#508CA4") +
+  geom_text(aes(x = year, y = net_movement, 
+                label = year),
+            size = 5,
+            fontface = "bold",
+            family = "Ubuntu",
+            hjust = 1.25,
+            vjust = 2.5) +
+  scale_y_continuous(labels = scales::label_number(scale = 0.001, suffix = "k")) +
+  scale_x_discrete(breaks = c(2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)) +
+  labs(title = "Net Migration Across Years") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),,
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 16, family = "Ubuntu"),
+        axis.title.y = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major.y = element_line(color = "lightgrey"),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(size = 20, family = "Ubuntu", 
+                                  color = "#508CA4", hjust = 0.5,
+                                  face = "bold"),
+        axis.title.x = element_blank()) +
+  coord_cartesian(ylim = c(-175000, -75000))
+net_plot
+
+# output png
+ ggsave(here::here("outputs", paste0("netplot_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = net_plot, width = 5, height = 4,
+         units = "in", dpi = 500, bg = "transparent")
+```
+
+```{r}
+###########################################################
+############### creating LA county inset map 
+
+# use tidycensus package to get LA county boundaries
+la_tracts <- get_acs(geography = "county",
+                     variables = "B01003_001",
+                     year = 2021,
+                     survey = "acs5", 
+                     state = "06", 
+                     county = "037",
+                     geometry = TRUE)
+
+# rename county column and change CRS to match US states and convert to a valid sf object
+la_tracts <- la_tracts %>% 
+  mutate(county = "Los Angeles, CA") %>% 
+  st_transform(crs = 4326) %>% 
+  st_as_sf() %>% 
+  st_make_valid()
+
+# create inset map for chloropleth map
+la_county_inset <- ggplot() +
+  geom_sf(data = la_tracts, fill = "transparent",
+          lwd = 2.5, color = "white") +
+  geom_sf_text(data = st_centroid(la_tracts), 
+               aes(label = county,
+                   fontface = "bold", 
+                   family = "Ubuntu"),
+               size = 5,
+               hjust = 0.4) +
+  theme_void() +
+  theme(legend.position = "none",
+        panel.border = element_blank())
+la_county_inset
+
+# output png
+ ggsave(here::here("outputs", paste0("countyplot_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = la_county_inset, width = 5, height = 4,
+         units = "in", dpi = 500, bg = "transparent")
+```
+
