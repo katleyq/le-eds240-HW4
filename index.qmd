@@ -13,7 +13,7 @@ editor: visual
 
 Santa Barbara, California has been home to me for almost a decade now. When I moved here from Los Angeles, I was a young 17 year old who was eager to start college in this odd beach town that attracted so many interesting people. Throughout my time here, I've had the pleasure of meeting people from all different backgrounds and said my sad goodbyes to friends who moved away for their next adventure. Next year marks my 10th year living in this sunny Santa Barbara community, and it had me thinking: how has the population of Santa Barbara changed throughout the years?
 
-[![Source: Vogue](outputs/vogue_sb.webp){fig-alt="Picture of coastline of Santa Barbara." fig-align="center" width="423"}](https://www.vogue.com/article/the-santa-barbara-hotels-that-will-leave-you-california-dreaming)
+[![Source: Vogue](outputs/vogue_sb.webp){fig-alt="Picture of coastline of Santa Barbara." fig-align="left" width="423"}](https://www.vogue.com/article/the-santa-barbara-hotels-that-will-leave-you-california-dreaming)
 
 ## **Objective**
 
@@ -509,7 +509,7 @@ When crafting together this infographic, I considered the following ten design e
 
 10. ***Applying a DEI lens to my design***
 
-    When migration is talked about in the news, there is usually a focus on migration to and from other countries. It is less common to hear stories of migration patterns between states. One reason I chose to look at migration within the states is to create more media that reminds people that unless we are indigenous to the land we live on like the Chumash people, we all have a history of migration. \
+    When migration is talked about in the news, there is usually a focus on migration to and from other countries. It is less common to hear stories of migration patterns between states. One reason I chose to look at migration within the states is to create more media that reminds people that unless we are indigenous to the land we live on like the Chumash people, we all have a history of migration.\
 
 ## **Final thoughts**
 
