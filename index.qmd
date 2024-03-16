@@ -7,6 +7,7 @@ format:
   html: 
     embed-resources: true
 editor: visual
+theme: cosmo
 ---
 
 ### **Motivation**
