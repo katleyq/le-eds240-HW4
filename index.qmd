@@ -13,7 +13,7 @@ editor: visual
 
 Santa Barbara, California has been home to me for almost a decade now. When I moved here from Los Angeles, I was a young 17 year old who was eager to start college in this odd beach town that attracted so many interesting people. Throughout my time here, I've had the pleasure of meeting people from all different backgrounds and said my sad goodbyes to friends who moved away for their next adventure. Next year marks my 10th year living in this sunny Santa Barbara community, and it had me thinking: how has the population of Santa Barbara changed throughout the years?
 
-![](images/sb.jpeg){fig-align="center" width="397"}
+[![Source: Vogue](outputs/vogue_sb.webp){fig-alt="Picture of coastline of Santa Barbara." fig-align="center" width="423"}](https://www.vogue.com/article/the-santa-barbara-hotels-that-will-leave-you-california-dreaming)
 
 ## **Objective**
 
