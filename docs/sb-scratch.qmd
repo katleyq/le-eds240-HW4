@@ -179,9 +179,9 @@ movement_plot <- ggplot() +
   # remove legend
   theme(legend.position = "none") +
   # specify colors
-  scale_fill_gradientn(colours = c("white", "#ebffe4",
-                                   "#afe09d","#689d55",
-                                   "#588157"),
+  scale_fill_gradientn(colours = c("#dbfeb8", "#c5edac",
+                                   "#99c2a2","#93b1a7",
+                                   "#7a918d"),
                        na.value = "white") +
   # create state labels for big states
   geom_sf_text(data = st_centroid(big_states), 
@@ -347,7 +347,8 @@ net_plot <- ggplot(data = sb_flow_net,
                    aes(x = year, y = net_movement,
                        fill = color_tag)) +
   geom_col(size = 2) +
-  scale_y_continuous(labels = scales::label_number(scale = 0.001, suffix = "k"),
+  scale_y_continuous(labels = scales::label_number(scale = 0.001, 
+                                                   suffix = "k"),
                      limits = c(-4000, 4000)) +
   scale_x_discrete(breaks = c(2015, 2016, 2017, 2018, 2019, 2020)) +
   scale_fill_manual(values = c(blue = "#689d55", red = "#FFBB02")) +
@@ -374,4 +375,98 @@ net_plot
          "%Y%m%d_%H%M%S"), ".png")), 
          plot = net_plot, width = 5, height = 4,
          units = "in", dpi = 500, bg = "transparent")
+```
+
+```{r}
+
+
+# create incoming resident plot
+movement_plot <- ggplot() +
+  # create color log-transformed sf objects for big states 
+   geom_sf(data = big_states, 
+           aes(fill = log(movers)),
+           color = "grey") +
+  # create color log-transformed sf objects for small states
+   geom_sf(data = small_states_polygons, 
+           aes(fill = log(movers)),
+           color = "grey") +
+  # create title
+  labs(title = "Who's moving into SB county?",
+       subtitle = "Number of people from each state who moved to SB from 2015-2020") +
+  # start with blank canvas
+  theme_void() +
+  # remove legend
+  theme(legend.position = "none") +
+  # specify colors
+  scale_fill_gradientn(colours = c("white", "#ebffe4",
+                                   "#afe09d","#689d55",
+                                   "#588157"),
+                       na.value = "white") +
+  # create state labels for big states
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = origin,
+                   fontface = "bold", 
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2.5,
+               vjust = -0.5) +
+  # create number of movers labels for big states
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2.5, 
+               vjust = 1.5,
+               fontface = "bold") +
+  # create state labels for smaller states
+  geom_sf_text(data = small_states, 
+                   aes(label = origin,
+                       family = "Ubuntu",
+                       fontface = "bold"), 
+                color = "black", 
+                size = 2.5, 
+                vjust = 2.5) +
+  # create number of movers labels for small states
+  geom_sf_text(data = st_centroid(small_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2, 
+               vjust = 4.5) +
+  # add destination star
+  ggstar::geom_star(aes(x = -120, y = 34.6), 
+             starshape =24, size = 6, 
+            color = "black", fill = "gold") +
+  # create all the lines from small states to labels
+  annotate("segment", x = -72.5, xend = -77, y = 32.5, 
+           yend = 38.5, color = "black", size = 0.2) + #DC
+  annotate("segment", x = -71.5, xend = -77, y = 34.5, 
+           yend = 39, color = "black", size = 0.2) + #MD
+  annotate("segment", x = -70.5, xend = -75.5, y = 36.5, 
+           yend = 39, color = "black", size = 0.2) + #DE
+  annotate("segment", x = -69.5, xend = -74.4, y = 38.5, 
+           yend = 40, color = "black", size = 0.2) + #NJ
+  annotate("segment", x = -68.5, xend = -72.7, y = 40.5, 
+           yend = 41.6, color = "black", size = 0.2) + #CT
+  annotate("segment", x = -68, xend = -71.5, y = 42, 
+           yend = 41.6, color = "black", size = 0.2) + #RI
+  annotate("segment", x = -67, xend = -71.8, y = 44, 
+           yend = 42.2, color = "black", size = 0.2) + #MA
+  # specify theme
+  theme(panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                                  size = 18,
+                                  color = "#508CA4",
+                                  face = "bold"),
+        plot.subtitle = element_text(family = "Ubuntu")
+        ) 
+
+movement_plot
+
+# output png
+ ggsave(here::here("outputs", paste0("SB_movement_", format(Sys.time(),
+         "%Y%m%d_%H%M%S"), ".png")), 
+         plot = movement_plot, width = 6, height = 4,
+         units = "in", dpi = 400, bg = "transparent")
 ```

@@ -218,7 +218,9 @@ movement_plot
 
 
 ```
-### title 
+
+### title
+
 ```{r}
 title <- ggplot() +
   labs(title = "Title here") +
@@ -239,6 +241,7 @@ title
 ```
 
 ### map
+
 ```{r}
 library(grImport2)
 destination_icon = readPicture(here::here("fonts", "location-dot-solid.svg"))
@@ -322,7 +325,6 @@ movement_plot
 
 ```
 
-
 ```{r}
 #| code-fold: true
 #| message: false
@@ -397,7 +399,6 @@ top5plot
          plot = top5plot, width = 6, height = 3,
          units = "in", dpi = 500, bg = "transparent")
 ```
-
 
 ```{r}
 #| code-fold: true
@@ -499,4 +500,3 @@ la_county_inset
          plot = la_county_inset, width = 5, height = 4,
          units = "in", dpi = 500, bg = "transparent")
 ```
-
