@@ -497,7 +497,7 @@ When crafting together this infographic, I considered the following ten design e
 
 7.  ***Context***
 
-    To contextualize the data, I added aesthetically pleasing photos of Santa Barbara. For the map, I placed a destination marker on Santa Barbara County to show where it is in the US. I drew an error from the destination marker to the horizontal bar graph displaying outflow to show movement. In addition, I added text throughout the infographic outlining my questions and takeaways.
+    To contextualize the data, I added aesthetically pleasing photos of Santa Barbara. For the map, I placed a destination marker on Santa Barbara County to show where it is in the US. I drew an arrow from the destination marker to the horizontal bar graph displaying outflow to show movement. In addition, I added text throughout the infographic outlining my questions and takeaways.
 
 8.  ***Centering my primary message***
 
