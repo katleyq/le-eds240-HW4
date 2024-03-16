@@ -1,37 +1,481 @@
 ---
 title: "The Santa Barbara Shuffle"
+subtitle: "Exploring and visualizing migration flow data from the US Census Bureau's American Community Survey"
 author: "Kat Le"
-format: html
+date: 2024-03-15
+format:
+  html: 
+    embed-resources: true
 editor: visual
 ---
 
-## **Motivation**
+### **Motivation**
 
-Santa Barbara, California has been home to me for almost a decade now. When I moved here from Los Angeles, I was a young 17 year old who was eager to start college in this odd beach town that attracted so many interesting people. Throughout my time here, I\'ve had the pleasure of meeting people from all different backgrounds and said my sad goodbyes to friends who moved away for their next adventure. Next year marks my 10th year in sunny Santa Barbara, and it had me thinking: how has the population of Santa Barbara changed throughout the years?
+Santa Barbara, California has been home to me for almost a decade now. When I moved here from Los Angeles, I was a young 17 year old who was eager to start college in this odd beach town that attracted so many interesting people. Throughout my time here, I've had the pleasure of meeting people from all different backgrounds and said my sad goodbyes to friends who moved away for their next adventure. Next year marks my 10th year living in this sunny Santa Barbara community, and it had me thinking: how has the population of Santa Barbara changed throughout the years?
 
 ## **Objective**
 
-In this project, I am exploring Santa Barbara County migration flow data. The product I am creating is an infographic that is thoughtfully crafted with ten important design elements in mind at each step. I will use R to create the data visualizations, and I will detail my design process along the way.
+In this project, I am exploring Santa Barbara County migration flow data. The product I am creating is an infographic that is crafted with ten important design elements in mind at each step. I will use R to create the data visualizations, and I will detail my design process along the way. The questions I am answering are:
+
+1.  Where are Santa Barbara residents moving from?
+
+2.  Where are Santa Barbara residents moving?
+
+3.  How has migration in Santa Barbra County changed over time?
 
 ## **Data Source**
 
-For this data exploration, I used data collected by the United States Census Bureau as part of the American Community Survey (ACS). The ACS collects information about people across a on an annual basis. 
+For this data exploration, I used data collected by the [United States Census Bureau](https://www.census.gov/about.html) as part of the [American Community Survey](https://www.census.gov/programs-surveys/acs) (ACS). The ACS collects information about people across the country on an annual basis. 
 
-\
+All census data was accessed through the Census Bureau's API using the [tidycensus](https://walker-data.com/tidycensus/) R package.
+
+Variables include:
+
+-   GEOID1 : identification number of county origin
+
+-   GEOID2 : identification number of county destination
+
+-   FULL1_NAME : county origin of resident
+
+-   FULL2_NAME : county destination of resident
+
+-   VARIABLE : category of migration flow
+
+-   ESTIMATE : number of people
+
+-   MOE : measure of error in data
+
+-   RECORD : the year that the data was collected
+
+In addition, I am using United States shapefiles provided by [ESRI](https://esri.maps.arcgis.com/home/item.html?id=8c2d6d7df8fa4142b0a1211c8dd66903).
+
+### Data Retrieval and Cleaning
+
+Libraries used:
+
+```{r}
+#| code-fold: true
+#| message: false
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                      Load libraries and set up API key                   ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+library(tidyverse)
+library(here)
+library(janitor)
+library(ARTofR)
+library(sf) # map
+library(ggstar) 
+library(extrafont) # star annotation
+library(glue) # parsing html
+library(patchwork) # patching
+library(showtext) # show custom fonts
+library(cowplot) # patching
+library(tidycensus) # census data
+library(webshot) # html to png
+library(magick) # png to ggplot object
+library(fiftystater) # us map with alaska + hawaii
+
+# set up tidycensus API
+source(here::here("data", "KEYS.R"))
+census_api_key(censusKEY)
+```
+
+I used the following code chunk to wrangle my data:
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                Add google font and enable viewing graphics               ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# add ubuntu font
+font_add_google(name = "Ubuntu", family = "Ubuntu")
+
+# set graphics setting for visual outputs
+showtext_opts(dpi = 400)
+showtext_auto(enable = TRUE)
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                        pull data from tidycensus API                     ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# grab flow data from 2015-2020
+sb_flows <- data.frame()
+for (year in seq(2015, 2020, 1)) {
+  
+  flows <- get_flows(
+      geography = 
+        "metropolitan statistical area",
+  msa = 42220,
+  year = year,
+  geometry = FALSE) %>% 
+    mutate(record = year)
+  
+  sb_flows <- bind_rows(sb_flows, flows)
+  
+}
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##  Wrangling california migration, US state polygons, and SB county polygon----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# tidy sb flow data and sum estimates by state
+sb_flow_in <- sb_flows %>% 
+  filter(variable == "MOVEDIN") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(destination = "SB County",
+         origin = state) %>%
+  select(origin, destination, estimate) %>% 
+  #filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(movers = sum(estimate)) %>% 
+  st_drop_geometry()
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                             Adding US polygons                           ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# read in US state boundaries and filter for lower 48 US states
+us_states <- st_read(here("data/US_State_Boundaries/US_State_Boundaries.shp")) %>% 
+  filter(!NAME %in% c("Alaska", "Hawaii", 
+                      "U.S. Virgin Islands", 
+                      "Puerto Rico"))
+
+# join US polygons to movement data using state name as key then turn dataframe into a valid sf object
+movement_joined <- full_join(x = sb_flow_in, 
+                             y = us_states,
+                             by = c("origin" = "STATE_ABBR")) %>% 
+  st_as_sf() %>% 
+  st_make_valid()
+
+# filter dataframe for all states
+sb_county <- movement_joined %>%
+  select(origin, destination, movers)
+
+# filter dataframe for data from big states
+big_states <- movement_joined %>%
+  select(origin, destination, movers) %>% 
+  filter(!origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", "MA",
+                        "FL")) %>% 
+  mutate(movers = if_else(is.na(movers), 0, movers))
+
+# filter dataframe for small states and keep geometry
+small_states_polygons <- movement_joined %>%
+  select(origin, destination, movers) %>% 
+  filter(origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", 
+                       "MA", "FL"))
+
+#filter dataframe for data from small states
+small_states <- movement_joined %>%
+  st_drop_geometry() %>% 
+  select(origin, destination, movers) %>% 
+  filter(origin %in% c("DC", "NJ", "CT",
+                        "MD", "DE", "RI", "MA", "FL")) %>% 
+  mutate(longitude = case_when(
+    origin == "DC" ~ "-72.",
+    origin == "MD" ~ "-71.",
+    origin == "DE" ~ "-70.",
+    origin == "NJ" ~ "-69.",
+    origin == "CT" ~ "-68.",
+    origin == "RI" ~ "-67.",
+    origin == "MA" ~ "-66.",
+    origin == "FL" ~ "-81.5"
+  )) %>% 
+  mutate(latitude = case_when(
+    origin == "DC" ~ "33.", 
+    origin == "MD" ~ "35.", 
+    origin == "DE" ~ "37.", 
+    origin == "NJ" ~ "39.", 
+    origin == "CT" ~ "41.", 
+    origin == "RI" ~ "43.",
+    origin == "MA" ~ "45.", 
+    origin == "FL" ~ "29"
+  )) %>% 
+  mutate(longitude = as.numeric(longitude),
+         latitude = as.numeric(latitude)) %>% 
+  st_as_sf(coords = c("longitude", "latitude"),
+           crs = 4326) %>% 
+  st_make_valid()
+```
+
+### Where are Santa Barbara County residents moving from?
+
+The following code was used to create a chloropleth map for my infographic. I decided to use text labels on each state polygon to reduce eye movement for the reader. I used a gradient of green shades to display the number of SB residents that are from each state. When assigning shades of green to polygons, I log-transformed the value in order to show the difference in magnitude between each state. Lastly, I added a destination marker on top of Santa Barbara County to provide context of where it is located.
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| fig-alt: "A chloropleth map of the United States where each state contains the number of people from the state who moved to Santa Barbara County from 2015-2020. Data is from the US Census Bureau's American Community Survey Data."
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                           Create chloropleth map                         ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# create incoming resident plot
+movement_plot <- ggplot() +
+  # create color log-transformed sf objects for big states 
+   geom_sf(data = big_states, 
+           aes(fill = log(movers)),
+           color = "grey") +
+  # create color log-transformed sf objects for small states
+   geom_sf(data = small_states_polygons, 
+           aes(fill = log(movers)),
+           color = "grey") +
+  # create title
+  labs(title = "Who's moving into SB county?",
+       subtitle = "Number of people from each state who moved to SB from 2015-2020") +
+  # start with blank canvas
+  theme_void() +
+  # remove legend
+  theme(legend.position = "none") +
+  # specify colors
+  scale_fill_gradientn(colours = c("white", "#ebffe4",
+                                   "#afe09d","#689d55",
+                                   "#588157"),
+                       na.value = "white") +
+  # create state labels for big states
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = origin,
+                   fontface = "bold", 
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2.5,
+               vjust = -0.5) +
+  # create number of movers labels for big states
+  geom_sf_text(data = st_centroid(big_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2.5, 
+               vjust = 1.5,
+               fontface = "bold") +
+  # create state labels for smaller states
+  geom_sf_text(data = small_states, 
+                   aes(label = origin,
+                       family = "Ubuntu",
+                       fontface = "bold"), 
+                color = "black", 
+                size = 2.5, 
+                vjust = 2.5) +
+  # create number of movers labels for small states
+  geom_sf_text(data = st_centroid(small_states), 
+               aes(label = scales::comma(movers),
+                   family = "Ubuntu"), 
+               color = "black", 
+               size = 2, 
+               vjust = 4.5) +
+  # add destination star
+  ggstar::geom_star(aes(x = -120, y = 34.6), 
+             starshape =24, size = 6, 
+            color = "black", fill = "gold") +
+  # create all the lines from small states to labels
+  annotate("segment", x = -72.5, xend = -77, y = 32.5, 
+           yend = 38.5, color = "black", size = 0.2) + #DC
+  annotate("segment", x = -71.5, xend = -77, y = 34.5, 
+           yend = 39, color = "black", size = 0.2) + #MD
+  annotate("segment", x = -70.5, xend = -75.5, y = 36.5, 
+           yend = 39, color = "black", size = 0.2) + #DE
+  annotate("segment", x = -69.5, xend = -74.4, y = 38.5, 
+           yend = 40, color = "black", size = 0.2) + #NJ
+  annotate("segment", x = -68.5, xend = -72.7, y = 40.5, 
+           yend = 41.6, color = "black", size = 0.2) + #CT
+  annotate("segment", x = -68, xend = -71.5, y = 42, 
+           yend = 41.6, color = "black", size = 0.2) + #RI
+  annotate("segment", x = -67, xend = -71.8, y = 44, 
+           yend = 42.2, color = "black", size = 0.2) + #MA
+  # specify theme
+  theme(panel.border = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                                  size = 18,
+                                  color = "#508CA4",
+                                  face = "bold",
+                                  hjust = 0.5),
+        plot.subtitle = element_text(family = "Ubuntu",
+                                     hjust = 0.5)
+        ) 
+
+movement_plot
+```
+
+### Where are Santa Barbara County residents moving?
+
+The following code was used to create a visualization of the top destinations where SB residents are moving. I chose a horizontal bar chart because it clearly displays the message I want to convey in a simple format. Instead of having a y axis, I labeled each bar with the appropriate state name. I positioned the state labels to be sitting at the bottom left corner of the plot so it looks like a list while also communicating the number of residents moving through the length of the bar. I re-scaled the x axis to reduce the amounts of numbers on the plot.
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| #| fig-alt: "A horizontal bar chart of the top destinations where Santa Barbara residents are moving to where Oregon, Texas, Arizona, Washington, and Nevada are placed at the top of the list. Data is from the US Census Bureau's American Community Survey Data."
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##            Wrangle migration flow data for horizontal bar chart          ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# tidy la flow out data and sum estimates by state
+sb_flow_out <- sb_flows %>% 
+  filter(variable == "MOVEDOUT") %>% 
+  select(FULL2_NAME, estimate)  %>% 
+  mutate(state = str_extract(FULL2_NAME, "([A-Z]{2})")) %>%  
+  mutate(destination = "SB County",
+         origin = state) %>%
+  select(origin, destination, estimate) %>% 
+  filter(destination != "NA") %>% 
+  group_by(origin, destination) %>% 
+  summarize(movers = sum(estimate)) %>% 
+  st_drop_geometry() %>%
+  filter(origin != "CA") %>% 
+  arrange(desc(movers)) %>% 
+  head(5)
+
+# create horizontal bar chart of states SB residents are moving to with labels
+top5plot <- sb_flow_out %>% 
+  mutate(full_name = case_when(
+    origin == "OR" ~ " OREGON",
+    origin == "TX" ~ " TEXAS",
+    origin == "AZ" ~ " ARIZONA",
+    origin == "WA" ~ " WASHINGTON",
+    origin == "NV" ~ " NEVADA"
+  )) %>% 
+  ggplot(aes(x = movers, y = fct_reorder(full_name, movers))) +
+  geom_col(fill = "#FFBB02") +
+  labs(title = "Top destinations where SB residents are moving out to:",
+       y = "Destination",
+       x = "Number of Movers") +
+  scale_x_continuous(labels = scales::label_number(scale = 0.001, suffix = "k")) +
+  geom_text(aes(label = full_name, x = 0),
+            family = "Ubuntu",
+            fontface = "bold",
+            hjust = 0,
+            vjust = 1,
+            # color = "#634b66",
+            color = "white",
+            size = 8) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(family = "Ubuntu",
+                            color = "#508CA4",
+                            hjust = 0.5,
+                            size = 17,
+                            face = "bold"),
+        text = element_text(family = "Ubuntu",
+                            color = "#223843"),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(size = 11,
+                                    family = "Ubuntu"),
+        axis.text.x = element_text(size = 14,
+                                   family = "Ubuntu"),
+        axis.text.y = element_blank(),
+        axis.line.x = element_line(color = "#83643A", linewidth = .4),
+        axis.ticks.x = element_line(color = "#83643A", linewidth = .4)) +
+  coord_cartesian(xlim = c(0, 4500))
+top5plot
+```
+
+### How has migration in Santa Barbara County changed over time?
+
+The following code was used to create the plot visualizing the net change in migration in SB over time. I chose a bar chart because it is better at emphasizing positive and negative changes in migration flows over time. I maintained the theme of using green to show SB residents moving in and yellow to show SB residents moving out. I decided to keep the horizontal grid lines because it is helpful when comparing values for the years that are similar in net migration. I re-scaled the y axis to reduce the amount of numbers displayed on the plot.
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| #| fig-alt: "A vertical bar chart of the net change in migration flows for Santa Barbara County from 2015 to 2020 where the net change is positive from 2015-2018 then negative from 2019-2020. Data is from the US Census Bureau's American Community Survey Data."
+
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##                  Wrangle data for net migration flow plot                ----
+##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# tidy la flow net data and sum estimates by state
+sb_flow_net <- sb_flows %>% 
+  filter(variable == "MOVEDNET") %>% 
+  select(record, variable, estimate) %>%
+  mutate(year = as.factor(record)) %>% 
+  group_by(year) %>% 
+  summarize(net_movement = sum(estimate, na.rm = TRUE)) %>% 
+  mutate(color_tag = if_else(net_movement < 0, "red", "blue"))
+
+# create the net movement plot
+net_plot <- ggplot(data = sb_flow_net, 
+                   aes(x = year, y = net_movement,
+                       fill = color_tag)) +
+  geom_col(size = 2) +
+  scale_y_continuous(labels = scales::label_number(scale = 0.001, 
+                                                   suffix = "k"),
+                     limits = c(-4000, 4000)) +
+  scale_x_discrete(breaks = c(2015, 2016, 2017, 2018, 2019, 2020)) +
+  scale_fill_manual(values = c(blue = "#689d55", red = "#FFBB02")) +
+  labs(title = "Net Migration Across Years") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_text(size = 16, family = "Ubuntu"),
+        axis.text.y = element_text(size = 16, family = "Ubuntu"),
+        axis.title.y = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major.y = element_line(color = "lightgrey"),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        plot.title = element_text(size = 20, family = "Ubuntu", 
+                                  color = "#508CA4", hjust = 0.5,
+                                  face = "bold"))
+net_plot
+```
+
+## Final Infographic
+
+All three plots above were tied together into the infographic below. I added more context and information to connect the three plots.
+
+```{r}
+#| code-fold: true
+#| message: false
+#| results: false
+#| warning: false
+#| code-overflow: wrap
+#| fig-alt: "An infographic of Santa Barbara County migration flow data where there are three data visualizations."
+
+```
+
+![](outputs/infographic.png)
+
+------------------------------------------------------------------------
 
 ## **Design Process**
 
-When crafting together this infographic, I considered the following ten design elements in the process.
-
-\
+When crafting together this infographic, I considered the following ten design elements in the process:\
 
 1.  ***Graphic Form***
 
-    I chose a choropleth map to display movement data because it\'s easier for the audience to digest state information when it\'s overlaid on top of the corresponding state. For the top 5 states that SB residents are moving to, I chose a horizontal bar chart because it looks like a ranked list while also giving information about the number of movers using the x axis. A bar chart was also the clearest way to display a change in migration flow over time.\
+    I chose a choropleth map to display movement data because it's easier for the audience to digest state information when it's overlaid on top of the corresponding state. For the top 5 states that SB residents are moving to, I chose a horizontal bar chart because it looks like a ranked list while also giving information about the number of movers using the x axis. A bar chart was also the clearest way to display a net change in migration flow over time so I chose this form for my third plot as well.\
 
 2.  ***Text***
 
-    I used text labels for the chloropleth map to help the audience visualize the population of SB residents from each state and to ultimately reduce eye movement for the audience. I wanted to avoid making the audience switch back and forth between the map and a legend. Since this data is about people, I decided not to round the numbers in the map. For the axes of the bar plots, I rescaled the numbers to lower the data-to-ink ratio.
+    I used text labels for the chloropleth map to help the audience visualize the population of SB residents from each state and to ultimately reduce eye movement for the audience. I wanted to avoid making the audience switch back and forth between the map and a legend. Since this data is about people, I decided not to round the numbers in the map. For the axes of the bar plots, I re-scaled the labels to lower the data-to-ink ratio.
 
 3.  ***Themes***
 
@@ -39,34 +483,32 @@ When crafting together this infographic, I considered the following ten design e
 
 4.  ***Colors***
 
-    When I think of Santa Barbara County, I think of sunshine, plants, and the beach. I wanted to use a soft yet bright color palette. I decided to use yellow, green, and blue throughout the infographic to paint a picture of my vision of Santa Barbara. Green symbolizes the people who moved into Santa Barbara County, and yellow represents the people who moved out in my plots. My use of blue was meant to guide the audience through my infographic. 
+    When I think of Santa Barbara County, I think of sunshine, plants, and the beach. I wanted to use a soft yet bright color palette. I decided to use yellow, green, and blue throughout the infographic to paint a picture of Santa Barbara. Green symbolizes the people who moved into Santa Barbara County, and yellow represents the people who moved out in my plots. My use of blue was meant to guide the audience through my infographic. I chose to use white for the infographic title and subtitle to separate that chunk out from the rest of the visualization.
 
 5.  ***Typography***
 
-    I remained consistent with the same font for all of the text on my infographic. I chose to use the Ubuntu font family because it is easy to read and visually pleasing to me. All of my titles are bolded, which makes it stand out from the subtitles.\
+    I remained consistent with the same font for all of the text on my infographic. I chose to use the Ubuntu font family because it is easy to read and visually pleasing to me. All of my titles are bold, which makes it stand out from the subtitles.
 
 6.  ***General Design***
 
-    \
-    \
+    I wanted to keep the general design of my infographic simple and straightforward. I tried to maintain a balance between utilizing all of the space within the infographic while trying to not overload it with information. I got rid of all plot backgrounds to reduce the data-ink ratio. I chose to use blue titles for the plots to guide the readers eyes to my main takeaways. I used yellow and green to show the relationship between the plots.
 
 7.  ***Context***
 
-    \
+    To contextualize the data, I added aesthetically pleasing photos of Santa Barbara. For the map, I placed a destination marker on Santa Barbara County to show where it is in the US. I drew an error from the destination marker to the horizontal bar graph displaying outflow to show movement. In addition, I added text throughout the infographic outlining my questions and takeaways.
 
 8.  ***Centering my primary message***
 
+    In the planning stages, I kept trying to figure out a way to incorporate all of the observations in my dataset. I wanted to show all migration flow to and from every state potentially using a Sankey Diagram or a chord plot, but I realized that it would overload the audience after listening to feedback. I centered my primary message by condensing information and displaying it in a horizontal bar chart. I chose the top five destinations that SB residents are moving to instead of showing the full ranking to avoid information overload.
+
 9.  ***Considering accessibility***
 
-    I added alt text to each of my figures so that anyone with different visual abilities can still visualize my plots. In addition, I used tools to \
+    I added alternative text to each of my figures so that anyone with different visual abilities can still visualize my plots. In addition, I used the "Let's get colorblind" tool to view my plots with each color vision deficiency to make sure that everyone understands the main takeaways from my infographic. I made sure to use darker shades of green and yellow to allow people with deuteranomaly to distinguish the color patterns.\
 
 10. ***Applying a DEI lens to my design***
 
-    When migration is talked about in the news, there is usually a focus on migration to and from other countries. It is less common to hear stories of migration between states. One reason I chose to look at migration within the states is to create more media that reminds people that unless we are Indigenous to the land we live on, we all have a history of migration. 
-
-\
-\
+    When migration is talked about in the news, there is usually a focus on migration to and from other countries. It is less common to hear stories of migration patterns between states. One reason I chose to look at migration within the states is to create more media that reminds people that unless we are indigenous to the land we live on like the Chumash people, we all have a history of migration. \
 
 ## **Final thoughts**
 
-\
+I had a lot of fun creating this infographic of the Santa Barbara Shuffle. It's so helpful to practice visualizing data. Through this project, I learned new techniques and tools to clearly communicate a message to a wide audience through the use of data. I will continue to expand my skill-set and come up with more creative ways to visualize data.

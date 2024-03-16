@@ -160,7 +160,8 @@ movement_plot <- ggplot() +
            color = "grey") +
   theme_void() +
   theme(legend.position = "none") +
-  scale_fill_gradientn(colours = c("white", "#ebffe4", "#afe09d", "#689d55",
+  scale_fill_gradientn(colours = c("white", "#ebffe4",
+                                   "#afe09d","#689d55",
                                    "#588157"),
                        na.value = "grey") +
   geom_sf_text(data = st_centroid(big_states), 
